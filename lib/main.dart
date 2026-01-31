@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:jazone_1/base_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
-import 'package:jazone_1/screens/home.dart';
 import 'package:jazone_1/screens/splast_screen.dart';
 
 Future<void> main() async {
@@ -33,7 +32,7 @@ Future<void> main() async {
   await Supabase.initialize(
     url: 'https://rexxegloqouxluevnftp.supabase.co',
     anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJleHhlZ2xvcW91eGx1ZXZuZnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzMjkzNDIsImV4cCI6MjA4MTkwNTM0Mn0.jcbUMMl-m3AZNVhMVHoPhUXgDnDfN1D_BPD6Toyg_es', // anon public
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJleHhlZ2xvcW91eGx1ZXZuZnRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYzMjkzNDIsImV4cCI6MjA4MTkwNTM0Mn0.jcbUMMl-m3AZNVhMVHoPhUXgDnDfN1D_BPD6Toyg_es',
   );
 
   runApp(const MyApp());
@@ -48,8 +47,8 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'JAzone',
       routes: {
-        '/': (context) => const SplashScreen(child: HomePage()),
-        '/home': (context) => const HomePage(),
+        '/': (context) => const SplashScreen(child: BasePage()),
+        '/home': (context) => const BasePage(),
       },
     );
   }

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:jazone_1/screens/incidentform.dart';
-import 'package:jazone_1/screens/utils/color_utils.dart';
 
 class HomePageScreen extends StatefulWidget {
   const HomePageScreen({Key? key}) : super(key: key);
@@ -86,7 +85,9 @@ class _HomePageScreenState extends State<HomePageScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text("Snap Tips"),
-        content: Image.asset('assets/tips.png'),
+        content: const Text(
+          "Tips for capturing incident evidence will be displayed here.",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -106,10 +107,10 @@ class _HomePageScreenState extends State<HomePageScreen> {
   @override
   Widget build(BuildContext context) {
     double focusWidth = 320;
-    double focusHeight = 400;
+    double focusHeight = 550;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: const Color(0xFF0F172A),
       body: Stack(
         children: [
           /// CAMERA PREVIEW
@@ -120,10 +121,7 @@ class _HomePageScreenState extends State<HomePageScreen> {
                     height: focusHeight,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: AppColors.primaryBlue,
-                        width: 3,
-                      ),
+                      border: Border.all(color: Colors.blue.shade400, width: 3),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(18),
@@ -162,38 +160,41 @@ class _HomePageScreenState extends State<HomePageScreen> {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.primaryBlue.withOpacity(0.4),
+                        color: Colors.blue.shade400.withOpacity(0.4),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
                     ],
                   ),
                   child: ClipOval(
-                    child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+                    child: Image.asset(
+                      'assets/logo.png', // <-- make sure this matches your asset path
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
-                Text(
-                  'JAzone Alert Zone',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Capture incident evidence',
-                  style: TextStyle(fontSize: 14, color: Colors.white70),
-                ),
+                // const Text(
+                //   'JAZone Alert',
+                //   style: TextStyle(
+                //     fontSize: 22,
+                //     fontWeight: FontWeight.bold,
+                //     color: Colors.white,
+                //   ),
+                // ),
+                // const SizedBox(height: 4),
+                // const Text(
+                //   'Capture incident evidence',
+                //   style: TextStyle(fontSize: 14, color: Colors.white70),
+                // ),
               ],
             ),
           ),
 
           /// TOP CONTROLS
           Positioned(
-            top: 60,
-            left: 16,
+            top: 120,
+            left: 30,
             child: Row(
               children: [
                 IconButton(
@@ -216,7 +217,7 @@ class _HomePageScreenState extends State<HomePageScreen> {
 
           /// BOTTOM CONTROLS
           Positioned(
-            bottom: 50,
+            bottom: 20,
             left: 0,
             right: 0,
             child: Row(
@@ -229,7 +230,7 @@ class _HomePageScreenState extends State<HomePageScreen> {
                 ),
                 FloatingActionButton(
                   onPressed: _captureImage,
-                  backgroundColor: AppColors.primaryBlue,
+                  backgroundColor: Colors.blue.shade400,
                   child: const Icon(Icons.camera, color: Colors.white),
                 ),
                 FloatingActionButton(
