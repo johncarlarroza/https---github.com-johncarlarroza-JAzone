@@ -25,8 +25,9 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
   String _urgency = 'low';
   bool _submitting = false;
 
-  GeoPoint? _geo;
-  String _locationText = '';
+  double? _lat;
+  double? _lng;
+  String _addressText = '';
 
   @override
   void initState() {
@@ -45,51 +46,74 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
         if (!mounted) return;
-        setState(() => _locationText = 'Location service disabled');
+        setState(() => _addressText = 'Location service disabled');
         return;
       }
 
       var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
         if (!mounted) return;
-        setState(() => _locationText = 'Location permission denied');
+        setState(() => _addressText = 'Location permission denied');
         return;
       }
 
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      _geo = GeoPoint(pos.latitude, pos.longitude);
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
 
-      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      _lat = pos.latitude;
+      _lng = pos.longitude;
+
+      final placemarks = await placemarkFromCoordinates(
+        pos.latitude,
+        pos.longitude,
+      );
       final p = placemarks.isNotEmpty ? placemarks.first : null;
+
       final text = p == null
           ? 'Unknown location'
           : [
               if ((p.street ?? '').trim().isNotEmpty) p.street,
               if ((p.locality ?? '').trim().isNotEmpty) p.locality,
-              if ((p.administrativeArea ?? '').trim().isNotEmpty) p.administrativeArea,
+              if ((p.administrativeArea ?? '').trim().isNotEmpty)
+                p.administrativeArea,
             ].whereType<String>().join(', ');
 
       if (!mounted) return;
-      setState(() => _locationText = text.isEmpty ? 'Unknown location' : text);
+      setState(() => _addressText = text.isEmpty ? 'Unknown location' : text);
     } catch (_) {
       if (!mounted) return;
-      setState(() => _locationText = 'Unable to detect location');
+      setState(() => _addressText = 'Unable to detect location');
     }
   }
 
+  /// ✅ Upload to Supabase bucket that matches your screenshot:
+  /// bucket: "incidents"
+  /// path: "images/incidents/<timestamp>.jpg"
   Future<String> _uploadToSupabase(File file) async {
     final supabase = Supabase.instance.client;
     final bytes = await file.readAsBytes();
-    final filePath = 'reports/${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-    await supabase.storage.from('incident-images').uploadBinary(
+    final filePath =
+        'images/incidents/${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+    await supabase.storage
+        .from('incidents')
+        .uploadBinary(
           filePath,
           bytes,
-          fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false),
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
+            upsert: false,
+          ),
         );
 
-    return supabase.storage.from('incident-images').getPublicUrl(filePath);
+    return supabase.storage.from('incidents').getPublicUrl(filePath);
   }
 
   Future<void> _submit() async {
@@ -98,17 +122,16 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
       _show('You must be logged in.');
       return;
     }
-
     if (_submitting) return;
 
-    final incidentName = _incidentCtrl.text.trim();
+    final name = _incidentCtrl.text.trim();
     final desc = _descCtrl.text.trim();
 
-    if (incidentName.isEmpty) {
+    if (name.isEmpty) {
       _show('Incident name is required.');
       return;
     }
-    if (_geo == null) {
+    if (_lat == null || _lng == null) {
       _show('Location is required. Please enable GPS and try again.');
       return;
     }
@@ -116,8 +139,11 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
     setState(() => _submitting = true);
 
     try {
-      // get user profile
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      // optional profile fields (safe even if missing)
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       final userData = userDoc.data() ?? <String, dynamic>{};
 
       final citizenName = (userData['fullName'] ?? '').toString();
@@ -125,40 +151,40 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
 
       final imageUrl = await _uploadToSupabase(widget.imageFile);
 
-      final reportRef = FirebaseFirestore.instance.collection('reports').doc();
+      // ✅ Save to "incidents" collection (matches your screenshot)
+      final ref = FirebaseFirestore.instance.collection('incidents').doc();
       final now = FieldValue.serverTimestamp();
 
-      await reportRef.set({
-        'reportId': reportRef.id,
+      await ref.set({
+        // IDs / owner
+        'incidentId': ref.id,
         'citizenUid': user.uid,
         'citizenName': citizenName,
         'citizenPhone': citizenPhone,
-        'incidentName': incidentName,
-        'urgencyLevel': _urgency,
-        'location': _geo,
-        'locationText': _locationText,
-        'imageUrls': [imageUrl],
+
+        // screenshot fields
+        'name': name,
         'description': desc,
-        'status': null, // will be set by admin after acceptance
-        'adminDecision': 'pending',
-        'adminComment': null,
-        'assignedResponderUid': null,
-        'assignedResponderName': null,
-        'assignedResponderPhone': null,
-        'resolutionProgress': '',
-        'citizenSolved': false,
-        'responderSolved': false,
-        'resolutionProvidedByResponder': null,
-        'resolvedAt': null,
+        'address': _addressText,
+        'imageUrl': imageUrl,
+        'latitude': _lat,
+        'longitude': _lng,
+
+        // progress fields (screenshot)
+        'progress': {'accepted': false, 'onAction': false},
+
+        // optional extra fields (safe for admin dashboard use)
+        'urgency': _urgency,
+        'status': 'pending',
+
         'createdAt': now,
         'updatedAt': now,
       });
 
-      // timeline event
-      await reportRef.collection('timeline').add({
+      // ✅ timeline subcollection (your screenshot shows "timeline")
+      await ref.collection('timeline').add({
         'type': 'created',
-        'label': 'Report Created',
-        'message': 'Citizen submitted a report.',
+        'message': 'Citizen submitted an incident.',
         'createdAt': now,
         'createdByUid': user.uid,
         'createdByRole': 'citizen',
@@ -167,7 +193,10 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => ReportDetailPage(reportId: reportRef.id, viewerRole: 'citizen')),
+        MaterialPageRoute(
+          builder: (_) =>
+              ReportDetailPage(reportId: ref.id, viewerRole: 'citizen'),
+        ),
       );
     } catch (e) {
       _show('Submit failed: $e');
@@ -230,11 +259,16 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
             ),
             child: Row(
               children: [
-                Icon(Icons.location_on_outlined, color: Colors.white.withOpacity(0.7)),
+                Icon(
+                  Icons.location_on_outlined,
+                  color: Colors.white.withOpacity(0.7),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    _locationText.isEmpty ? 'Detecting location...' : _locationText,
+                    _addressText.isEmpty
+                        ? 'Detecting location...'
+                        : _addressText,
                     style: const TextStyle(color: Colors.white),
                   ),
                 ),
@@ -251,7 +285,10 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
             controller: _descCtrl,
             maxLines: 4,
             style: const TextStyle(color: Colors.white),
-            decoration: _dec('Description (optional)', Icons.description_outlined),
+            decoration: _dec(
+              'Description (optional)',
+              Icons.description_outlined,
+            ),
           ),
           const SizedBox(height: 18),
 
@@ -262,7 +299,9 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFFF6B35),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
               child: _submitting
                   ? const CircularProgressIndicator(color: Colors.white)
@@ -275,11 +314,14 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
   }
 
   InputDecoration _dec(String label, IconData icon) => InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-        prefixIcon: Icon(icon, color: Colors.white.withOpacity(0.7)),
-        filled: true,
-        fillColor: const Color(0xFF1A1F3A),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-      );
+    labelText: label,
+    labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+    prefixIcon: Icon(icon, color: Colors.white.withOpacity(0.7)),
+    filled: true,
+    fillColor: const Color(0xFF1A1F3A),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: BorderSide.none,
+    ),
+  );
 }

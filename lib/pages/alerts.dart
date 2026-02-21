@@ -19,10 +19,15 @@ class AlertsPage extends StatelessWidget {
         title: const Text('Alerts'),
       ),
       body: user == null
-          ? const Center(child: Text('Please login', style: TextStyle(color: Colors.white)))
+          ? const Center(
+              child: Text(
+                'Please login',
+                style: TextStyle(color: Colors.white),
+              ),
+            )
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
-                  .collection('reports')
+                  .collection('incidents')
                   .where('citizenUid', isEqualTo: user.uid)
                   .orderBy('updatedAt', descending: true)
                   .limit(30)
@@ -35,7 +40,10 @@ class AlertsPage extends StatelessWidget {
                 final docs = snap.data?.docs ?? [];
                 if (docs.isEmpty) {
                   return Center(
-                    child: Text('No alerts yet.', style: TextStyle(color: Colors.white.withOpacity(0.7))),
+                    child: Text(
+                      'No alerts yet.',
+                      style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                    ),
                   );
                 }
 
@@ -46,26 +54,34 @@ class AlertsPage extends StatelessWidget {
                   itemBuilder: (context, i) {
                     final d = docs[i].data();
                     final id = docs[i].id;
-                    final incident = (d['incidentName'] ?? '').toString();
-                    final decision = (d['adminDecision'] ?? 'pending').toString();
-                    final status = (d['status'] ?? '').toString();
 
-                    final msg = decision == 'denied'
-                        ? 'Your report was denied.'
-                        : decision == 'accepted'
-                            ? 'Your report was accepted.'
-                            : 'Your report is pending.';
+                    final name = (d['name'] ?? '').toString();
+                    final progress = (d['progress'] is Map)
+                        ? Map<String, dynamic>.from(d['progress'])
+                        : <String, dynamic>{};
 
-                    final sub = status.isEmpty ? msg : '$msg Status: $status';
+                    final accepted = progress['accepted'] == true;
+                    final onAction = progress['onAction'] == true;
+
+                    final msg = accepted
+                        ? (onAction
+                              ? 'Responder is now on action.'
+                              : 'Your incident was accepted.')
+                        : 'Your incident is pending.';
 
                     IconData icon = Icons.notifications_active;
-                    if (decision == 'accepted') icon = Icons.check_circle;
-                    if (decision == 'denied') icon = Icons.cancel;
+                    if (accepted) icon = Icons.check_circle;
+                    if (accepted && onAction) icon = Icons.directions_run;
 
                     return InkWell(
                       onTap: () => Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => ReportDetailPage(reportId: id, viewerRole: 'citizen')),
+                        MaterialPageRoute(
+                          builder: (_) => ReportDetailPage(
+                            reportId: id,
+                            viewerRole: 'citizen',
+                          ),
+                        ),
                       ),
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
@@ -73,7 +89,9 @@ class AlertsPage extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: const Color(0xFF1A1F3A),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white.withOpacity(0.08)),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.08),
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -84,11 +102,19 @@ class AlertsPage extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    incident.isEmpty ? 'Report update' : incident,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                                    name.isEmpty ? 'Incident update' : name,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(sub, style: TextStyle(color: Colors.white.withOpacity(0.75))),
+                                  Text(
+                                    msg,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.75),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),

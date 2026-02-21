@@ -16,31 +16,43 @@ class CitizenBasePage extends StatefulWidget {
 class _CitizenBasePageState extends State<CitizenBasePage> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = const [
+  static const List<Widget> _pages = [
     HomePageScreen(),
-    MyReportsPage(),
+    MyReportsPage(), // ✅ keep this as the tab
     AlertsPage(),
     AboutUsPage(),
     SettingsPage(),
   ];
 
+  void _onNavTap(int index) {
+    final safe = index.clamp(0, _pages.length - 1);
+    if (!mounted) return;
+    setState(() => _currentIndex = safe);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final safeIndex = (_currentIndex >= 0 && _currentIndex < _pages.length) ? _currentIndex : 0;
+    final safeIndex = _currentIndex.clamp(0, _pages.length - 1);
 
     return Scaffold(
-      body: _pages[safeIndex],
+      body: IndexedStack(index: safeIndex, children: _pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: safeIndex,
         type: BottomNavigationBarType.fixed,
         backgroundColor: const Color(0xFF1A1F3A),
         selectedItemColor: const Color(0xFFFF6B35),
         unselectedItemColor: Colors.white.withOpacity(0.65),
-        onTap: (index) => setState(() => _currentIndex = index),
+        onTap: _onNavTap,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.description), label: 'My Reports'),
-          BottomNavigationBarItem(icon: Icon(Icons.notifications_active), label: 'Alerts'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.description),
+            label: 'My Reports',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.notifications_active),
+            label: 'Alerts',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.info), label: 'About Us'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],

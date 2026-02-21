@@ -14,7 +14,9 @@ class MyReportsPage extends StatelessWidget {
     if (user == null) {
       return const Scaffold(
         backgroundColor: Color(0xFF0F172A),
-        body: Center(child: Text('Please login', style: TextStyle(color: Colors.white))),
+        body: Center(
+          child: Text('Please login', style: TextStyle(color: Colors.white)),
+        ),
       );
     }
 
@@ -28,7 +30,7 @@ class MyReportsPage extends StatelessWidget {
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
-            .collection('reports')
+            .collection('incidents')
             .where('citizenUid', isEqualTo: user.uid)
             .orderBy('createdAt', descending: true)
             .snapshots(),
@@ -55,17 +57,27 @@ class MyReportsPage extends StatelessWidget {
               final data = docs[index].data();
               final id = docs[index].id;
 
-              final incident = (data['incidentName'] ?? '').toString();
-              final urgency = (data['urgencyLevel'] ?? '').toString();
-              final status = (data['status'] ?? '').toString();
-              final decision = (data['adminDecision'] ?? 'pending').toString();
+              final name = (data['name'] ?? '').toString();
+              final urgency = (data['urgency'] ?? '').toString();
+              final address = (data['address'] ?? '').toString();
+              final progress = (data['progress'] is Map)
+                  ? Map<String, dynamic>.from(data['progress'])
+                  : <String, dynamic>{};
+
+              final accepted = progress['accepted'] == true;
+              final onAction = progress['onAction'] == true;
+
+              final statusText = accepted
+                  ? (onAction ? 'On Action' : 'Accepted')
+                  : 'Pending';
 
               return InkWell(
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => ReportDetailPage(reportId: id, viewerRole: 'citizen'),
+                      builder: (_) =>
+                          ReportDetailPage(reportId: id, viewerRole: 'citizen'),
                     ),
                   );
                 },
@@ -81,15 +93,30 @@ class MyReportsPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        incident.isEmpty ? 'Unnamed Incident' : incident,
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                        name.isEmpty ? 'Unnamed Incident' : name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       const SizedBox(height: 6),
-                      Text('Urgency: ${urgency.isEmpty ? '-' : urgency}', style: TextStyle(color: Colors.white.withOpacity(0.8))),
+                      Text(
+                        'Urgency: ${urgency.isEmpty ? '-' : urgency}',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                      ),
                       const SizedBox(height: 4),
-                      Text('Admin: $decision', style: TextStyle(color: Colors.white.withOpacity(0.8))),
+                      Text(
+                        'Status: $statusText',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                      ),
                       const SizedBox(height: 4),
-                      Text('Status: ${status.isEmpty ? '-' : status}', style: TextStyle(color: Colors.white.withOpacity(0.8))),
+                      if (address.isNotEmpty)
+                        Text(
+                          address,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                          ),
+                        ),
                     ],
                   ),
                 ),
