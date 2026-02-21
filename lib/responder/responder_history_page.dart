@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../screens/report_detail_page.dart';
 
-class AlertsPage extends StatelessWidget {
-  const AlertsPage({super.key});
+class ResponderHistoryPage extends StatelessWidget {
+  const ResponderHistoryPage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -16,27 +16,24 @@ class AlertsPage extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1F3A),
         foregroundColor: Colors.white,
-        title: const Text('Alerts'),
+        title: const Text('History'),
       ),
       body: user == null
           ? const Center(child: Text('Please login', style: TextStyle(color: Colors.white)))
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('reports')
-                  .where('citizenUid', isEqualTo: user.uid)
+                  .where('assignedResponderUid', isEqualTo: user.uid)
                   .orderBy('updatedAt', descending: true)
-                  .limit(30)
+                  .limit(50)
                   .snapshots(),
               builder: (context, snap) {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-
                 final docs = snap.data?.docs ?? [];
                 if (docs.isEmpty) {
-                  return Center(
-                    child: Text('No alerts yet.', style: TextStyle(color: Colors.white.withOpacity(0.7))),
-                  );
+                  return Center(child: Text('No history.', style: TextStyle(color: Colors.white.withOpacity(0.75))));
                 }
 
                 return ListView.separated(
@@ -46,26 +43,22 @@ class AlertsPage extends StatelessWidget {
                   itemBuilder: (context, i) {
                     final d = docs[i].data();
                     final id = docs[i].id;
+
                     final incident = (d['incidentName'] ?? '').toString();
-                    final decision = (d['adminDecision'] ?? 'pending').toString();
                     final status = (d['status'] ?? '').toString();
+                    final decision = (d['adminDecision'] ?? '').toString();
+                    final responderDecision = (d['responderDecision'] ?? '').toString();
+                    final denyReason = (d['responderDenyReason'] ?? '').toString();
+                    final adminComment = (d['adminComment'] ?? '').toString();
 
-                    final msg = decision == 'denied'
-                        ? 'Your report was denied.'
-                        : decision == 'accepted'
-                            ? 'Your report was accepted.'
-                            : 'Your report is pending.';
-
-                    final sub = status.isEmpty ? msg : '$msg Status: $status';
-
-                    IconData icon = Icons.notifications_active;
-                    if (decision == 'accepted') icon = Icons.check_circle;
-                    if (decision == 'denied') icon = Icons.cancel;
+                    final subtitle = responderDecision == 'denied'
+                        ? 'Denied • ${denyReason.isEmpty ? 'No reason provided' : denyReason}'
+                        : 'Admin: $decision • Status: ${status.isEmpty ? '-' : status}';
 
                     return InkWell(
                       onTap: () => Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => ReportDetailPage(reportId: id, viewerRole: 'citizen')),
+                        MaterialPageRoute(builder: (_) => ReportDetailPage(reportId: id, viewerRole: 'responder')),
                       ),
                       borderRadius: BorderRadius.circular(16),
                       child: Container(
@@ -75,23 +68,17 @@ class AlertsPage extends StatelessWidget {
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: Colors.white.withOpacity(0.08)),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(icon, color: const Color(0xFFFF6B35)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    incident.isEmpty ? 'Report update' : incident,
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(sub, style: TextStyle(color: Colors.white.withOpacity(0.75))),
-                                ],
-                              ),
-                            ),
+                            Text(incident.isEmpty ? 'Unnamed Incident' : incident,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 6),
+                            Text(subtitle, style: TextStyle(color: Colors.white.withOpacity(0.8))),
+                            if (decision == 'denied' && adminComment.trim().isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text('Admin comment: $adminComment', style: TextStyle(color: Colors.white.withOpacity(0.7))),
+                            ],
                           ],
                         ),
                       ),

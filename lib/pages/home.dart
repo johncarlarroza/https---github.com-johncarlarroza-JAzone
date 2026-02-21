@@ -6,14 +6,14 @@ import 'package:image_picker/image_picker.dart';
 
 import '../screens/incidentform.dart';
 
-class HomePageScreen extends StatefulWidget {
-  const HomePageScreen({super.key});
+class HomeCameraScreen extends StatefulWidget {
+  const HomeCameraScreen({super.key});
 
   @override
-  State<HomePageScreen> createState() => _HomePageScreenState();
+  State<HomeCameraScreen> createState() => _HomeCameraScreenState();
 }
 
-class _HomePageScreenState extends State<HomePageScreen> {
+class _HomeCameraScreenState extends State<HomeCameraScreen> {
   CameraController? _cameraController;
   bool _isCameraInitialized = false;
   int _selectedCameraIndex = 0;

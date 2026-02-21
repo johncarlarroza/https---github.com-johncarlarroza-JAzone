@@ -3,13 +3,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/role_selection_page.dart';
+import '../services/location_tracking_service.dart';
 
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+class ResponderProfilePage extends StatelessWidget {
+  const ResponderProfilePage({super.key});
 
   Future<void> _logout(BuildContext context) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
+      // stop tracking if running
+      await LocationTrackingService().stopTracking();
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'isOnline': false,
         'lastLogoutAt': FieldValue.serverTimestamp(),
@@ -44,7 +47,6 @@ class SettingsPage extends StatelessWidget {
                 final name = (data['fullName'] ?? '').toString();
                 final phone = (data['phone'] ?? '').toString();
                 final email = (data['email'] ?? user.email ?? '').toString();
-                final role = (data['role'] ?? '').toString();
 
                 return ListView(
                   padding: const EdgeInsets.all(16),
@@ -59,17 +61,15 @@ class SettingsPage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(name.isEmpty ? 'User' : name,
+                          Text(name.isEmpty ? 'Responder' : name,
                               style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
                           const SizedBox(height: 10),
-                          _row('Role', role),
                           _row('Phone', phone.isEmpty ? '-' : phone),
                           _row('Email', email.isEmpty ? '-' : email),
                         ],
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     SizedBox(
                       height: 52,
                       child: ElevatedButton(
@@ -94,7 +94,7 @@ class SettingsPage extends StatelessWidget {
       padding: const EdgeInsets.only(top: 6),
       child: Row(
         children: [
-          SizedBox(width: 80, child: Text(k, style: TextStyle(color: Colors.white.withOpacity(0.7)))),
+          SizedBox(width: 70, child: Text(k, style: TextStyle(color: Colors.white.withOpacity(0.7)))),
           Expanded(child: Text(v, style: const TextStyle(color: Colors.white))),
         ],
       ),

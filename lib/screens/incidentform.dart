@@ -1,11 +1,13 @@
 import 'dart:io';
-import 'package:flutter/material.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:jazone_1/screens/incident_dashboard_page.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:jazone_1/screens/utils/color_utils.dart';
+
+import 'report_detail_page.dart';
 
 class IncidentFormPage extends StatefulWidget {
   final File imageFile;
@@ -16,311 +18,268 @@ class IncidentFormPage extends StatefulWidget {
   State<IncidentFormPage> createState() => _IncidentFormPageState();
 }
 
-class _IncidentFormPageState extends State<IncidentFormPage>
-    with SingleTickerProviderStateMixin {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _addressController = TextEditingController();
+class _IncidentFormPageState extends State<IncidentFormPage> {
+  final _incidentCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
 
-  String urgency = 'Normal';
-  bool isSubmitting = false;
+  String _urgency = 'low';
+  bool _submitting = false;
 
-  double? latitude;
-  double? longitude;
-
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
+  GeoPoint? _geo;
+  String _locationText = '';
 
   @override
   void initState() {
     super.initState();
-
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    );
-
-    _animationController.forward();
-    _getLocationAndAddress();
-  }
-
-  // 📍 LOCATION
-  Future<void> _getLocationAndAddress() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      _addressController.text = 'Location service disabled';
-      return;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      _addressController.text = 'Location permission denied';
-      return;
-    }
-
-    final Position position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-
-    latitude = position.latitude;
-    longitude = position.longitude;
-
-    final placemarks = await placemarkFromCoordinates(latitude!, longitude!);
-    final place = placemarks.first;
-
-    setState(() {
-      _addressController.text =
-          '${place.locality}, ${place.administrativeArea}';
-    });
-  }
-
-  // 🚀 SUBMIT INCIDENT
-  Future<void> _submitIncident() async {
-    if (isSubmitting) return;
-    setState(() => isSubmitting = true);
-
-    try {
-      final supabase = Supabase.instance.client;
-      final String filePath =
-          'incidents/${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-      final bytes = await widget.imageFile.readAsBytes();
-
-      // Upload image to Supabase
-      await supabase.storage
-          .from('incident-images')
-          .uploadBinary(
-            filePath,
-            bytes,
-            fileOptions: const FileOptions(
-              contentType: 'image/jpeg',
-              upsert: false,
-            ),
-          );
-
-      final String imageUrl = supabase.storage
-          .from('incident-images')
-          .getPublicUrl(filePath);
-
-      print('Submitting incident with URL: $imageUrl');
-
-      // Save to Firestore and capture the DocumentReference
-      final docRef = await FirebaseFirestore.instance
-          .collection('incidents')
-          .add({
-            'name': _nameController.text.isEmpty
-                ? 'Unknown'
-                : _nameController.text,
-            'address': _addressController.text,
-            'description': _descriptionController.text,
-            'imageUrl': imageUrl,
-            'latitude': latitude ?? 0.0,
-            'longitude': longitude ?? 0.0,
-            'urgency': urgency,
-            'status': 'Reported',
-            'timestamp': Timestamp.now(),
-            'progress': {
-              'accepted': false,
-              'reportedToLGU': false,
-              'onAction': false,
-              'solved': false,
-            },
-          });
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incident reported successfully')),
-      );
-
-      // Navigate to IncidentDashboardPage
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => IncidentDashboardPage(incidentId: docRef.id),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    } finally {
-      if (mounted) setState(() => isSubmitting = false);
-    }
-  }
-
-  Color get submitColor =>
-      urgency == 'Urgent' ? Colors.orange.shade400 : Colors.blue.shade400;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A), // dark blue background
-      appBar: AppBar(
-        backgroundColor: Colors.blue.shade700,
-        title: const Text('Report Incident'),
-      ),
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
-              _imagePreview(),
-              const SizedBox(height: 24),
-              _formCard(),
-              const SizedBox(height: 30),
-              _submitButton(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // 🖼 IMAGE PREVIEW
-  Widget _imagePreview() {
-    return Card(
-      elevation: 6,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Image.file(
-          widget.imageFile,
-          height: 230,
-          width: double.infinity,
-          fit: BoxFit.cover,
-        ),
-      ),
-    );
-  }
-
-  // 📋 FORM
-  Widget _formCard() {
-    return Card(
-      elevation: 4,
-      color: const Color(0xFF1A1F3A), // dark card
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            _inputField(
-              controller: _nameController,
-              label: 'Name (Optional)',
-              icon: Icons.person_outline,
-            ),
-            const SizedBox(height: 16),
-
-            TextField(
-              controller: _addressController,
-              readOnly: true,
-              decoration: _inputDecoration(
-                'Location',
-                Icons.location_on_outlined,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            DropdownButtonFormField<String>(
-              value: urgency,
-              decoration: _inputDecoration(
-                'Urgency Level',
-                Icons.priority_high_outlined,
-              ),
-              items: const [
-                DropdownMenuItem(value: 'Normal', child: Text('Normal')),
-                DropdownMenuItem(value: 'Urgent', child: Text('Urgent')),
-              ],
-              onChanged: (value) => setState(() => urgency = value!),
-            ),
-            const SizedBox(height: 16),
-
-            _inputField(
-              controller: _descriptionController,
-              label: 'Incident Description',
-              icon: Icons.description_outlined,
-              maxLines: 4,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _submitButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: submitColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        onPressed: isSubmitting ? null : _submitIncident,
-        child: isSubmitting
-            ? const CircularProgressIndicator(color: Colors.white)
-            : const Text(
-                'Submit Incident Report',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-      ),
-    );
-  }
-
-  Widget _inputField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    int maxLines = 1,
-  }) {
-    return TextField(
-      controller: controller,
-      maxLines: maxLines,
-      style: const TextStyle(color: Colors.white),
-      decoration: _inputDecoration(label, icon),
-    );
-  }
-
-  InputDecoration _inputDecoration(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(color: Colors.white70),
-      prefixIcon: Icon(icon, color: Colors.blue.shade400),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.blue.shade400),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.blue.shade400),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: Colors.orange.shade400, width: 2),
-      ),
-      filled: true,
-      fillColor: const Color(0xFF0F172A),
-    );
+    _loadLocation();
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _descriptionController.dispose();
-    _addressController.dispose();
-    _animationController.dispose();
+    _incidentCtrl.dispose();
+    _descCtrl.dispose();
     super.dispose();
   }
+
+  Future<void> _loadLocation() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (!mounted) return;
+        setState(() => _locationText = 'Location service disabled');
+        return;
+      }
+
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
+        if (!mounted) return;
+        setState(() => _locationText = 'Location permission denied');
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      _geo = GeoPoint(pos.latitude, pos.longitude);
+
+      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      final p = placemarks.isNotEmpty ? placemarks.first : null;
+      final text = p == null
+          ? 'Unknown location'
+          : [
+              if ((p.street ?? '').trim().isNotEmpty) p.street,
+              if ((p.locality ?? '').trim().isNotEmpty) p.locality,
+              if ((p.administrativeArea ?? '').trim().isNotEmpty) p.administrativeArea,
+            ].whereType<String>().join(', ');
+
+      if (!mounted) return;
+      setState(() => _locationText = text.isEmpty ? 'Unknown location' : text);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _locationText = 'Unable to detect location');
+    }
+  }
+
+  Future<String> _uploadToSupabase(File file) async {
+    final supabase = Supabase.instance.client;
+    final bytes = await file.readAsBytes();
+    final filePath = 'reports/${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+    await supabase.storage.from('incident-images').uploadBinary(
+          filePath,
+          bytes,
+          fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false),
+        );
+
+    return supabase.storage.from('incident-images').getPublicUrl(filePath);
+  }
+
+  Future<void> _submit() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _show('You must be logged in.');
+      return;
+    }
+
+    if (_submitting) return;
+
+    final incidentName = _incidentCtrl.text.trim();
+    final desc = _descCtrl.text.trim();
+
+    if (incidentName.isEmpty) {
+      _show('Incident name is required.');
+      return;
+    }
+    if (_geo == null) {
+      _show('Location is required. Please enable GPS and try again.');
+      return;
+    }
+
+    setState(() => _submitting = true);
+
+    try {
+      // get user profile
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userData = userDoc.data() ?? <String, dynamic>{};
+
+      final citizenName = (userData['fullName'] ?? '').toString();
+      final citizenPhone = (userData['phone'] ?? '').toString();
+
+      final imageUrl = await _uploadToSupabase(widget.imageFile);
+
+      final reportRef = FirebaseFirestore.instance.collection('reports').doc();
+      final now = FieldValue.serverTimestamp();
+
+      await reportRef.set({
+        'reportId': reportRef.id,
+        'citizenUid': user.uid,
+        'citizenName': citizenName,
+        'citizenPhone': citizenPhone,
+        'incidentName': incidentName,
+        'urgencyLevel': _urgency,
+        'location': _geo,
+        'locationText': _locationText,
+        'imageUrls': [imageUrl],
+        'description': desc,
+        'status': null, // will be set by admin after acceptance
+        'adminDecision': 'pending',
+        'adminComment': null,
+        'assignedResponderUid': null,
+        'assignedResponderName': null,
+        'assignedResponderPhone': null,
+        'resolutionProgress': '',
+        'citizenSolved': false,
+        'responderSolved': false,
+        'resolutionProvidedByResponder': null,
+        'resolvedAt': null,
+        'createdAt': now,
+        'updatedAt': now,
+      });
+
+      // timeline event
+      await reportRef.collection('timeline').add({
+        'type': 'created',
+        'label': 'Report Created',
+        'message': 'Citizen submitted a report.',
+        'createdAt': now,
+        'createdByUid': user.uid,
+        'createdByRole': 'citizen',
+      });
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => ReportDetailPage(reportId: reportRef.id, viewerRole: 'citizen')),
+      );
+    } catch (e) {
+      _show('Submit failed: $e');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  void _show(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1A1F3A),
+        foregroundColor: Colors.white,
+        title: const Text('Report Incident'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.file(widget.imageFile, height: 220, fit: BoxFit.cover),
+          ),
+          const SizedBox(height: 16),
+
+          TextField(
+            controller: _incidentCtrl,
+            style: const TextStyle(color: Colors.white),
+            decoration: _dec('Incident name', Icons.report),
+          ),
+          const SizedBox(height: 12),
+
+          DropdownButtonFormField<String>(
+            value: _urgency,
+            decoration: _dec('Urgency level', Icons.priority_high),
+            dropdownColor: const Color(0xFF1A1F3A),
+            items: const [
+              DropdownMenuItem(value: 'low', child: Text('Low')),
+              DropdownMenuItem(value: 'medium', child: Text('Medium')),
+              DropdownMenuItem(value: 'high', child: Text('High')),
+              DropdownMenuItem(value: 'critical', child: Text('Critical')),
+            ],
+            onChanged: (v) => setState(() => _urgency = v ?? 'low'),
+            style: const TextStyle(color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1F3A),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withOpacity(0.08)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.location_on_outlined, color: Colors.white.withOpacity(0.7)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _locationText.isEmpty ? 'Detecting location...' : _locationText,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                IconButton(
+                  onPressed: _loadLocation,
+                  icon: const Icon(Icons.refresh, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          TextField(
+            controller: _descCtrl,
+            maxLines: 4,
+            style: const TextStyle(color: Colors.white),
+            decoration: _dec('Description (optional)', Icons.description_outlined),
+          ),
+          const SizedBox(height: 18),
+
+          SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _submitting ? null : _submit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: _submitting
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('Submit Report'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  InputDecoration _dec(String label, IconData icon) => InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+        prefixIcon: Icon(icon, color: Colors.white.withOpacity(0.7)),
+        filled: true,
+        fillColor: const Color(0xFF1A1F3A),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+      );
 }
