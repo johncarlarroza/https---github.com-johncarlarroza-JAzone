@@ -9,32 +9,21 @@ import 'role_selection_page.dart';
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
-  Future<void> _ensureUserProfile(User user) async {
-    final usersRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid);
-    final snap = await usersRef.get();
-
-    // ✅ If profile missing, create a safe default profile (Citizen)
-    if (!snap.exists) {
-      await usersRef.set({
-        'uid': user.uid,
-        'role': 'citizen', // ✅ safe default
-        'email': user.email,
-        'phone': user.phoneNumber,
-        'name': '',
-        'isOnline': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'lastLoginAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      return;
-    }
-
-    // ✅ If profile exists, update online/login timestamps
-    await usersRef.set({
+  Future<void> _touchLogin(User user) async {
+    // Only touch online/login timestamps (DO NOT create default role)
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      'uid': user.uid,
+      'email': user.email,
+      'phone': user.phoneNumber,
       'isOnline': true,
       'lastLoginAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+  }
+
+  Future<void> _signOutSilently() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
   }
 
   @override
@@ -50,16 +39,14 @@ class AuthGate extends StatelessWidget {
 
         final user = authSnap.data;
 
-        // Not logged in -> pick role (citizen/responder)
         if (user == null) {
           return const RoleSelectionPage();
         }
 
-        // Logged in -> make sure profile exists then route by role
         return FutureBuilder<void>(
-          future: _ensureUserProfile(user),
-          builder: (context, fixSnap) {
-            if (fixSnap.connectionState == ConnectionState.waiting) {
+          future: _touchLogin(user),
+          builder: (context, touchSnap) {
+            if (touchSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
                 body: Center(child: CircularProgressIndicator()),
               );
@@ -78,17 +65,22 @@ class AuthGate extends StatelessWidget {
                 }
 
                 if (!profileSnap.hasData || !profileSnap.data!.exists) {
-                  // Should not happen because we ensure profile above
+                  // No profile -> force re-auth
+                  _signOutSilently();
                   return const RoleSelectionPage();
                 }
 
                 final data = profileSnap.data!.data() ?? <String, dynamic>{};
-                final role = (data['role'] ?? '').toString().toLowerCase();
+                final role = (data['role'] ?? '')
+                    .toString()
+                    .toLowerCase()
+                    .trim();
 
                 if (role == 'citizen') return const CitizenBasePage();
                 if (role == 'responder') return const ResponderBasePage();
 
-                // Unknown role -> go back to role selection
+                // Unknown/empty role
+                _signOutSilently();
                 return const RoleSelectionPage();
               },
             );

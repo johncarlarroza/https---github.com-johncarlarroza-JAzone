@@ -30,7 +30,7 @@ class MyReportsPage extends StatelessWidget {
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
-            .collection('incidents')
+            .collection('reports')
             .where('citizenUid', isEqualTo: user.uid)
             .orderBy('createdAt', descending: true)
             .snapshots(),
@@ -57,19 +57,10 @@ class MyReportsPage extends StatelessWidget {
               final data = docs[index].data();
               final id = docs[index].id;
 
-              final name = (data['name'] ?? '').toString();
-              final urgency = (data['urgency'] ?? '').toString();
-              final address = (data['address'] ?? '').toString();
-              final progress = (data['progress'] is Map)
-                  ? Map<String, dynamic>.from(data['progress'])
-                  : <String, dynamic>{};
-
-              final accepted = progress['accepted'] == true;
-              final onAction = progress['onAction'] == true;
-
-              final statusText = accepted
-                  ? (onAction ? 'On Action' : 'Accepted')
-                  : 'Pending';
+              final incident = (data['incidentName'] ?? '').toString();
+              final urgency = (data['urgencyLevel'] ?? '').toString();
+              final status = (data['status'] ?? '').toString();
+              final decision = (data['adminDecision'] ?? 'pending').toString();
 
               return InkWell(
                 onTap: () {
@@ -93,7 +84,7 @@ class MyReportsPage extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        name.isEmpty ? 'Unnamed Incident' : name,
+                        incident.isEmpty ? 'Unnamed Incident' : incident,
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
@@ -106,17 +97,14 @@ class MyReportsPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Status: $statusText',
+                        'Admin: $decision',
                         style: TextStyle(color: Colors.white.withOpacity(0.8)),
                       ),
                       const SizedBox(height: 4),
-                      if (address.isNotEmpty)
-                        Text(
-                          address,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                          ),
-                        ),
+                      Text(
+                        'Status: ${status.isEmpty ? '-' : status}',
+                        style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                      ),
                     ],
                   ),
                 ),

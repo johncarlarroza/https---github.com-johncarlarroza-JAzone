@@ -11,12 +11,8 @@ class RoleSelectionPage extends StatelessWidget {
       child: Column(
         children: [
           const SizedBox(height: 20),
-
-          // ✅ LOGO
           Image.asset('assets/logo.png', height: 120),
-
           const SizedBox(height: 20),
-
           const Text(
             'JAzone',
             style: TextStyle(
@@ -25,30 +21,23 @@ class RoleSelectionPage extends StatelessWidget {
               color: Colors.white,
             ),
           ),
-
           const SizedBox(height: 10),
-
           const Text(
             'Emergency Response & Citizen Reporting System',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.white70),
           ),
-
           const SizedBox(height: 40),
 
           _roleButton(
             context,
             label: "Continue as Citizen",
-            role: "citizen",
             icon: Icons.person,
           ),
-
           const SizedBox(height: 16),
-
           _roleButton(
             context,
             label: "Continue as Responder",
-            role: "responder",
             icon: Icons.local_police,
           ),
         ],
@@ -59,7 +48,6 @@ class RoleSelectionPage extends StatelessWidget {
   Widget _roleButton(
     BuildContext context, {
     required String label,
-    required String role,
     required IconData icon,
   }) {
     return SizedBox(
@@ -78,7 +66,7 @@ class RoleSelectionPage extends StatelessWidget {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => LoginPage(selectedRole: role)),
+            MaterialPageRoute(builder: (_) => const LoginPage()),
           );
         },
       ),

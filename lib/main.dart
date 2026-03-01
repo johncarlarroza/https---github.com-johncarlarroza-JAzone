@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:jazone_1/auth/login_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 
@@ -68,7 +69,7 @@ class JAzoneApp extends StatelessWidget {
         // ✅ Keep your theme init, but replace this with your Theme Utils theme
         theme: ThemeData(useMaterial3: true),
 
-        home: const AuthGate(),
+        home: const LoginPage(),
       ),
     );
   }

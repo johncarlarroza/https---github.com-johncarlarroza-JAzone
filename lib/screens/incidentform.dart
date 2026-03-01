@@ -22,7 +22,7 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
   final _incidentCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
 
-  String _urgency = 'low';
+  String _urgency = 'low'; // low | medium | high | critical
   bool _submitting = false;
 
   double? _lat;
@@ -65,7 +65,6 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-
       _lat = pos.latitude;
       _lng = pos.longitude;
 
@@ -92,18 +91,17 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
     }
   }
 
-  /// ✅ Upload to Supabase bucket that matches your screenshot:
-  /// bucket: "incidents"
-  /// path: "images/incidents/<timestamp>.jpg"
+  /// ✅ Upload image to Supabase Storage and return PUBLIC URL
+  /// bucket: incident-images
+  /// path: reports/<timestamp>.jpg
   Future<String> _uploadToSupabase(File file) async {
     final supabase = Supabase.instance.client;
     final bytes = await file.readAsBytes();
 
-    final filePath =
-        'images/incidents/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final filePath = 'reports/${DateTime.now().millisecondsSinceEpoch}.jpg';
 
     await supabase.storage
-        .from('incidents')
+        .from('incident-images')
         .uploadBinary(
           filePath,
           bytes,
@@ -113,7 +111,7 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
           ),
         );
 
-    return supabase.storage.from('incidents').getPublicUrl(filePath);
+    return supabase.storage.from('incident-images').getPublicUrl(filePath);
   }
 
   Future<void> _submit() async {
@@ -124,10 +122,10 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
     }
     if (_submitting) return;
 
-    final name = _incidentCtrl.text.trim();
+    final incidentName = _incidentCtrl.text.trim();
     final desc = _descCtrl.text.trim();
 
-    if (name.isEmpty) {
+    if (incidentName.isEmpty) {
       _show('Incident name is required.');
       return;
     }
@@ -139,52 +137,74 @@ class _IncidentFormPageState extends State<IncidentFormPage> {
     setState(() => _submitting = true);
 
     try {
-      // optional profile fields (safe even if missing)
+      // Read user info (support BOTH "name" and "fullName")
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
       final userData = userDoc.data() ?? <String, dynamic>{};
 
-      final citizenName = (userData['fullName'] ?? '').toString();
-      final citizenPhone = (userData['phone'] ?? '').toString();
+      final citizenName =
+          ((userData['name'] ?? '').toString().trim().isNotEmpty)
+          ? (userData['name'] ?? '').toString().trim()
+          : (userData['fullName'] ?? '').toString().trim();
 
+      final citizenPhone = (userData['phone'] ?? '').toString().trim();
+
+      // Upload image to Supabase then store URL in Firestore
       final imageUrl = await _uploadToSupabase(widget.imageFile);
 
-      // ✅ Save to "incidents" collection (matches your screenshot)
-      final ref = FirebaseFirestore.instance.collection('incidents').doc();
+      final ref = FirebaseFirestore.instance.collection('reports').doc();
       final now = FieldValue.serverTimestamp();
 
       await ref.set({
-        // IDs / owner
-        'incidentId': ref.id,
+        // IDs
+        'reportId': ref.id,
+
+        // Citizen
         'citizenUid': user.uid,
         'citizenName': citizenName,
         'citizenPhone': citizenPhone,
+        'citizenSolved': false,
 
-        // screenshot fields
-        'name': name,
+        // Admin fields
+        'adminDecision': 'pending',
+        'adminComment': null,
+
+        // Responder assignment (admin will fill later)
+        'assignedResponderUid': null,
+        'assignedResponderName': null,
+        'assignedResponderPhone': null,
+
+        // Incident details (MATCH YOUR FIRESTORE)
+        'incidentName': incidentName,
         'description': desc,
-        'address': _addressText,
-        'imageUrl': imageUrl,
-        'latitude': _lat,
-        'longitude': _lng,
+        'urgencyLevel': _urgency, // low/medium/high/critical
 
-        // progress fields (screenshot)
-        'progress': {'accepted': false, 'onAction': false},
+        'location': GeoPoint(_lat!, _lng!),
+        'locationText': _addressText,
 
-        // optional extra fields (safe for admin dashboard use)
-        'urgency': _urgency,
-        'status': 'pending',
+        // Images
+        'imageUrls': [imageUrl],
 
+        // Progress / resolution fields
+        'resolutionInProgress': '',
+        'resolutionProgress': '',
+        'resolutionProvidedByResponder': null,
+
+        'responderSolved': false,
+        'status':
+            'pending', // you can keep this string; admin dashboard can update it
+        // timestamps
         'createdAt': now,
         'updatedAt': now,
-      });
+        'resolvedAt': null,
+      }, SetOptions(merge: true));
 
-      // ✅ timeline subcollection (your screenshot shows "timeline")
       await ref.collection('timeline').add({
         'type': 'created',
-        'message': 'Citizen submitted an incident.',
+        'label': 'Created',
+        'message': 'Citizen submitted a report.',
         'createdAt': now,
         'createdByUid': user.uid,
         'createdByRole': 'citizen',

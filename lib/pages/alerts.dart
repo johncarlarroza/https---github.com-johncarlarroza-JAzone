@@ -7,6 +7,8 @@ import '../screens/report_detail_page.dart';
 class AlertsPage extends StatelessWidget {
   const AlertsPage({super.key});
 
+  String _safeStr(dynamic v) => (v ?? '').toString().trim();
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -27,7 +29,7 @@ class AlertsPage extends StatelessWidget {
             )
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
-                  .collection('incidents')
+                  .collection('reports')
                   .where('citizenUid', isEqualTo: user.uid)
                   .orderBy('updatedAt', descending: true)
                   .limit(30)
@@ -53,32 +55,56 @@ class AlertsPage extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (context, i) {
                     final d = docs[i].data();
-                    final id = docs[i].id;
+                    final docId = docs[i].id;
 
-                    final name = (d['name'] ?? '').toString();
-                    final progress = (d['progress'] is Map)
-                        ? Map<String, dynamic>.from(d['progress'])
-                        : <String, dynamic>{};
+                    final incident = _safeStr(d['incidentName']);
+                    final status = _safeStr(d['status']);
+                    final adminDecision = _safeStr(
+                      d['adminDecision'],
+                    ).toLowerCase(); // pending/accepted/denied
+                    final adminComment = _safeStr(d['adminComment']);
 
-                    final accepted = progress['accepted'] == true;
-                    final onAction = progress['onAction'] == true;
+                    final resolverInProgress = _safeStr(
+                      d['resolutionInProgress'],
+                    );
+                    final responderSolved = d['responderSolved'] == true;
+                    final citizenSolved = d['citizenSolved'] == true;
 
-                    final msg = accepted
-                        ? (onAction
-                              ? 'Responder is now on action.'
-                              : 'Your incident was accepted.')
-                        : 'Your incident is pending.';
+                    String headline;
+                    IconData icon;
 
-                    IconData icon = Icons.notifications_active;
-                    if (accepted) icon = Icons.check_circle;
-                    if (accepted && onAction) icon = Icons.directions_run;
+                    if (adminDecision == 'denied') {
+                      headline = 'Denied';
+                      icon = Icons.cancel;
+                    } else if (adminDecision == 'accepted') {
+                      headline = 'Accepted';
+                      icon = Icons.check_circle;
+                    } else {
+                      headline = 'Pending';
+                      icon = Icons.hourglass_bottom;
+                    }
+
+                    final details = <String>[];
+
+                    if (status.isNotEmpty) details.add('Status: $status');
+                    if (resolverInProgress.isNotEmpty)
+                      details.add('Progress: $resolverInProgress');
+                    if (responderSolved) details.add('Responder marked solved');
+                    if (citizenSolved) details.add('You confirmed solved');
+                    if (adminDecision == 'denied' && adminComment.isNotEmpty) {
+                      details.add('Reason: $adminComment');
+                    }
+
+                    final sub = details.isEmpty
+                        ? 'Tap to view details.'
+                        : details.join(' • ');
 
                     return InkWell(
                       onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => ReportDetailPage(
-                            reportId: id,
+                            reportId: docId,
                             viewerRole: 'citizen',
                           ),
                         ),
@@ -102,7 +128,9 @@ class AlertsPage extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    name.isEmpty ? 'Incident update' : name,
+                                    incident.isEmpty
+                                        ? 'Report Update'
+                                        : incident,
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w700,
@@ -110,7 +138,7 @@ class AlertsPage extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    msg,
+                                    '$headline • $sub',
                                     style: TextStyle(
                                       color: Colors.white.withOpacity(0.75),
                                     ),
