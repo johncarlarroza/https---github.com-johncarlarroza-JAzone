@@ -10,7 +10,7 @@ import 'package:provider/provider.dart';
 
 import 'auth/auth_gate.dart';
 import 'services/notification_service.dart';
-import 'services/auth_service.dart'; // ✅ make sure this path matches your project
+import 'services/auth_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +19,6 @@ Future<void> main() async {
   try {
     await dotenv.load(fileName: ".env");
   } catch (_) {}
-
   // Firebase init
   if (Platform.isAndroid) {
     await Firebase.initializeApp(

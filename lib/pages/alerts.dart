@@ -9,6 +9,46 @@ class AlertsPage extends StatelessWidget {
 
   String _safeStr(dynamic v) => (v ?? '').toString().trim();
 
+  String _statusLabelFromCode(String code) {
+    switch (code) {
+      case 'accepted_by_admin':
+        return 'Accepted';
+      case 'reported_to_lgu':
+        return 'Reported to LGU';
+      case 'under_surveillance':
+        return 'Under Surveillance';
+      case 'responder_dispatched':
+        return 'Responder Dispatched';
+      case 'problem_solved':
+        return 'Solved';
+      case 'denied_by_admin':
+        return 'Denied';
+      case 'pending_admin':
+      default:
+        return 'Pending';
+    }
+  }
+
+  IconData _iconForStatus(String code) {
+    switch (code) {
+      case 'accepted_by_admin':
+        return Icons.check_circle;
+      case 'reported_to_lgu':
+        return Icons.account_balance;
+      case 'under_surveillance':
+        return Icons.visibility;
+      case 'responder_dispatched':
+        return Icons.local_shipping;
+      case 'problem_solved':
+        return Icons.verified;
+      case 'denied_by_admin':
+        return Icons.cancel;
+      case 'pending_admin':
+      default:
+        return Icons.hourglass_bottom;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -58,40 +98,54 @@ class AlertsPage extends StatelessWidget {
                     final docId = docs[i].id;
 
                     final incident = _safeStr(d['incidentName']);
-                    final status = _safeStr(d['status']);
+                    final adminComment = _safeStr(d['adminComment']);
+                    final resolutionProgress = _safeStr(
+                      d['resolutionProgress'],
+                    );
+                    final resolutionProvided = _safeStr(
+                      d['resolutionProvidedByResponder'],
+                    );
+                    final assignedResponderName = _safeStr(
+                      d['assignedResponderName'],
+                    );
+
                     final adminDecision = _safeStr(
                       d['adminDecision'],
-                    ).toLowerCase(); // pending/accepted/denied
-                    final adminComment = _safeStr(d['adminComment']);
+                    ).toLowerCase();
+                    final statusCode = _safeStr(d['statusCode']).isNotEmpty
+                        ? _safeStr(d['statusCode'])
+                        : 'pending_admin';
 
-                    final resolverInProgress = _safeStr(
-                      d['resolutionInProgress'],
-                    );
                     final responderSolved = d['responderSolved'] == true;
                     final citizenSolved = d['citizenSolved'] == true;
 
-                    String headline;
-                    IconData icon;
-
-                    if (adminDecision == 'denied') {
-                      headline = 'Denied';
-                      icon = Icons.cancel;
-                    } else if (adminDecision == 'accepted') {
-                      headline = 'Accepted';
-                      icon = Icons.check_circle;
-                    } else {
-                      headline = 'Pending';
-                      icon = Icons.hourglass_bottom;
-                    }
+                    final label = _statusLabelFromCode(statusCode);
+                    final icon = _iconForStatus(statusCode);
 
                     final details = <String>[];
 
-                    if (status.isNotEmpty) details.add('Status: $status');
-                    if (resolverInProgress.isNotEmpty)
-                      details.add('Progress: $resolverInProgress');
-                    if (responderSolved) details.add('Responder marked solved');
-                    if (citizenSolved) details.add('You confirmed solved');
-                    if (adminDecision == 'denied' && adminComment.isNotEmpty) {
+                    if (assignedResponderName.isNotEmpty &&
+                        statusCode == 'responder_dispatched') {
+                      details.add('Assigned: $assignedResponderName');
+                    }
+
+                    if (resolutionProgress.isNotEmpty) {
+                      details.add('Progress: $resolutionProgress');
+                    }
+
+                    if (resolutionProvided.isNotEmpty && responderSolved) {
+                      details.add('Resolution: $resolutionProvided');
+                    }
+
+                    if (citizenSolved) {
+                      details.add('You confirmed solved');
+                    } else if (responderSolved) {
+                      details.add('Responder marked solved');
+                    }
+
+                    if ((statusCode == 'denied_by_admin' ||
+                            adminDecision == 'denied') &&
+                        adminComment.isNotEmpty) {
                       details.add('Reason: $adminComment');
                     }
 
@@ -138,7 +192,7 @@ class AlertsPage extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '$headline • $sub',
+                                    '$label • $sub',
                                     style: TextStyle(
                                       color: Colors.white.withOpacity(0.75),
                                     ),

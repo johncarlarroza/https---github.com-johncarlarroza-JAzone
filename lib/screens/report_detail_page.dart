@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,10 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../services/location_tracking_service.dart';
+import '../services/route_service.dart';
 
 class ReportDetailPage extends StatefulWidget {
   final String reportId;
   final String viewerRole; // 'citizen' | 'responder'
+
   const ReportDetailPage({
     super.key,
     required this.reportId,
@@ -21,13 +24,22 @@ class ReportDetailPage extends StatefulWidget {
 }
 
 class _ReportDetailPageState extends State<ReportDetailPage> {
-  final _tracking = LocationTrackingService();
+  final LocationTrackingService _tracking = LocationTrackingService();
+  final RouteService _routeService = RouteService();
+
   StreamSubscription? _trackingSub;
+
+  bool _trackingStarted = false;
+  bool _routeLoading = false;
+
+  String? _lastRouteKey;
+  Set<Polyline> _routePolylines = {};
+
+  double? _distanceKm;
+  String _etaText = '--';
 
   DocumentReference<Map<String, dynamic>> get _ref =>
       FirebaseFirestore.instance.collection('reports').doc(widget.reportId);
-
-  bool _trackingStarted = false;
 
   @override
   void dispose() {
@@ -36,6 +48,115 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
   }
 
   String _s(dynamic v) => (v ?? '').toString().trim();
+
+  String _statusLabelFromCode(String code) {
+    switch (code) {
+      case 'accepted_by_admin':
+        return 'Accepted';
+      case 'reported_to_lgu':
+        return 'Reported to LGU';
+      case 'under_surveillance':
+        return 'Under Surveillance';
+      case 'responder_dispatched':
+        return 'Responder Dispatched';
+      case 'problem_solved':
+        return 'Solved';
+      case 'denied_by_admin':
+        return 'Denied';
+      case 'pending_admin':
+      default:
+        return 'Pending Review';
+    }
+  }
+
+  double _directDistanceKm(LatLng a, LatLng b) {
+    const earthRadius = 6371.0;
+    final dLat = _degToRad(b.latitude - a.latitude);
+    final dLng = _degToRad(b.longitude - a.longitude);
+
+    final x =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_degToRad(a.latitude)) *
+            math.cos(_degToRad(b.latitude)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+
+    final c = 2 * math.atan2(math.sqrt(x), math.sqrt(1 - x));
+    return earthRadius * c;
+  }
+
+  double _degToRad(double deg) => deg * (math.pi / 180.0);
+
+  String _formatDistanceKm(double km) {
+    if (km < 1) {
+      return '${(km * 1000).toStringAsFixed(0)} m';
+    }
+    return '${km.toStringAsFixed(1)} km';
+  }
+
+  String _formatEtaFromKm(double km) {
+    const avgSpeedKmh = 30.0;
+    final hours = km / avgSpeedKmh;
+    final mins = (hours * 60).ceil();
+    return '$mins min';
+  }
+
+  Future<void> _updateRoute({
+    required LatLng responder,
+    required LatLng citizen,
+  }) async {
+    final key =
+        '${responder.latitude},${responder.longitude}->${citizen.latitude},${citizen.longitude}';
+
+    if (_routeLoading || _lastRouteKey == key) return;
+
+    _routeLoading = true;
+
+    try {
+      final points = await _routeService.getRoute(
+        startLat: responder.latitude,
+        startLng: responder.longitude,
+        endLat: citizen.latitude,
+        endLng: citizen.longitude,
+      );
+
+      final distanceKm = _directDistanceKm(responder, citizen);
+
+      if (!mounted) return;
+
+      setState(() {
+        _lastRouteKey = key;
+        _distanceKm = distanceKm;
+        _etaText = _formatEtaFromKm(distanceKm);
+        _routePolylines = {
+          Polyline(
+            polylineId: const PolylineId('route'),
+            width: 5,
+            points: points.map((p) => LatLng(p.lat, p.lng)).toList(),
+          ),
+        };
+      });
+    } catch (_) {
+      final distanceKm = _directDistanceKm(responder, citizen);
+
+      if (!mounted) return;
+
+      setState(() {
+        _lastRouteKey = key;
+        _distanceKm = distanceKm;
+        _etaText = _formatEtaFromKm(distanceKm);
+        _routePolylines = {
+          Polyline(
+            polylineId: const PolylineId('fallback'),
+            width: 4,
+            points: [citizen, responder],
+          ),
+        };
+      });
+    } finally {
+      _routeLoading = false;
+    }
+  }
 
   Future<String?> _inputDialog({
     required String title,
@@ -88,6 +209,8 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
     await _ref.update({
       'resolutionProgress': msg.trim(),
       'resolutionInProgress': 'in_progress',
+      'statusCode': 'under_surveillance',
+      'status': 'Under Surveillance',
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -95,6 +218,7 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
       'type': 'progress',
       'label': 'Progress Update',
       'message': msg.trim(),
+      'statusCode': 'under_surveillance',
       'createdAt': FieldValue.serverTimestamp(),
       'createdByUid': user.uid,
       'createdByRole': 'responder',
@@ -120,8 +244,11 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
 
     await _ref.update({
       'responderSolved': true,
+      'citizenSolved': false,
       'resolutionProvidedByResponder': resolution.trim(),
-      'status': 'solved',
+      'resolutionText': resolution.trim(),
+      'statusCode': 'problem_solved',
+      'status': 'Resolved',
       'resolvedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -130,6 +257,7 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
       'type': 'solved',
       'label': 'Solved',
       'message': 'Responder marked the problem as solved.',
+      'statusCode': 'problem_solved',
       'createdAt': FieldValue.serverTimestamp(),
       'createdByUid': user.uid,
       'createdByRole': 'responder',
@@ -147,7 +275,8 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
 
     await _ref.update({
       'citizenSolved': true,
-      'status': 'solved',
+      'statusCode': 'problem_solved',
+      'status': 'Resolved',
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -155,6 +284,7 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
       'type': 'citizen_confirm',
       'label': 'Citizen Confirmed',
       'message': 'Citizen confirmed the report is solved.',
+      'statusCode': 'problem_solved',
       'createdAt': FieldValue.serverTimestamp(),
       'createdByUid': user.uid,
       'createdByRole': 'citizen',
@@ -164,6 +294,20 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Thank you! Confirmed solved.')),
     );
+  }
+
+  void _ensureResponderTracking({
+    required bool assignedToMe,
+    required bool responderSolved,
+  }) {
+    if (assignedToMe && !_trackingStarted && !responderSolved) {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUid == null) return;
+
+      _trackingStarted = true;
+      _trackingSub?.cancel();
+      _trackingSub = _tracking.startTracking(responderUid: currentUid);
+    }
   }
 
   @override
@@ -181,6 +325,7 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+
           if (!snap.hasData || !snap.data!.exists) {
             return const Center(
               child: Text(
@@ -190,7 +335,7 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
             );
           }
 
-          final data = snap.data!.data() ?? {};
+          final data = snap.data!.data() ?? <String, dynamic>{};
 
           final incidentName = _s(data['incidentName']);
           final description = _s(data['description']);
@@ -202,30 +347,42 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
               : _s(data['adminDecision']);
           final adminComment = _s(data['adminComment']);
 
-          final assignedResponderUid = _s(data['assignedResponderUid']);
+          final statusCode = _s(data['statusCode']).isEmpty
+              ? 'pending_admin'
+              : _s(data['statusCode']);
+          final statusLabel = _statusLabelFromCode(statusCode);
+
+          final assignedResponderUid =
+              _s(data['assignedResponderUid']).isNotEmpty
+              ? _s(data['assignedResponderUid'])
+              : _s(data['assignedResponderId']);
+
           final assignedResponderName = _s(data['assignedResponderName']);
           final assignedResponderPhone = _s(data['assignedResponderPhone']);
 
           final resolutionProgress = _s(data['resolutionProgress']);
-          final resolutionProvided = _s(data['resolutionProvidedByResponder']);
+          final resolutionProvided =
+              _s(data['resolutionProvidedByResponder']).isNotEmpty
+              ? _s(data['resolutionProvidedByResponder'])
+              : _s(data['resolutionText']);
 
           final citizenSolved = data['citizenSolved'] == true;
           final responderSolved = data['responderSolved'] == true;
+          final responderArrived =
+              data['responderArrived'] == true ||
+              data['responderOnLocation'] == true;
 
-          // images
           final rawImages = data['imageUrls'];
           final imageUrls = (rawImages is List)
               ? rawImages.map((e) => _s(e)).where((e) => e.isNotEmpty).toList()
               : <String>[];
 
-          // location
           LatLng? citizenLatLng;
           final loc = data['location'];
           if (loc is GeoPoint) {
             citizenLatLng = LatLng(loc.latitude, loc.longitude);
           }
 
-          // Start responder tracking if responder is viewing AND is assigned
           final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
           final isResponderViewer = widget.viewerRole == 'responder';
           final assignedToMe =
@@ -233,25 +390,10 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
               assignedResponderUid.isNotEmpty &&
               assignedResponderUid == currentUid;
 
-          if (assignedToMe && !_trackingStarted && !responderSolved) {
-            _trackingStarted = true;
-            _trackingSub?.cancel();
-            _trackingSub = _tracking.startTracking(responderUid: currentUid);
-          }
-
-          // status label (simple + based on your fields)
-          String statusLabel;
-          if (citizenSolved || responderSolved) {
-            statusLabel = 'Solved';
-          } else if (adminDecision.toLowerCase() == 'denied') {
-            statusLabel = 'Denied';
-          } else if (assignedResponderUid.isNotEmpty) {
-            statusLabel = 'Responder Assigned';
-          } else if (adminDecision.toLowerCase() == 'accepted') {
-            statusLabel = 'Approved by Admin';
-          } else {
-            statusLabel = 'Pending Review';
-          }
+          _ensureResponderTracking(
+            assignedToMe: assignedToMe,
+            responderSolved: responderSolved,
+          );
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -274,7 +416,6 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                     ),
                   ),
                 ),
-
               if (imageUrls.isNotEmpty) const SizedBox(height: 12),
 
               _card(
@@ -292,8 +433,28 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                     const SizedBox(height: 8),
                     _row('Urgency', urgency),
                     _row('Location', locationText),
-                    const SizedBox(height: 10),
+                    _row('Status', statusLabel),
                     _row('Admin', adminDecision),
+                    if (responderArrived) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Responder is on the location',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                     if (adminDecision.toLowerCase() == 'denied' &&
                         adminComment.isNotEmpty)
                       Padding(
@@ -315,36 +476,6 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                   ],
                 ),
               ),
-
-              const SizedBox(height: 12),
-
-              _card(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Status',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      statusLabel,
-                      style: TextStyle(color: Colors.white.withOpacity(0.85)),
-                    ),
-                    if (responderSolved && resolutionProvided.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        'Resolution: $resolutionProvided',
-                        style: TextStyle(color: Colors.white.withOpacity(0.85)),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
               const SizedBox(height: 12),
 
               _card(
@@ -365,10 +496,16 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                           : resolutionProgress,
                       style: TextStyle(color: Colors.white.withOpacity(0.85)),
                     ),
+                    if (responderSolved && resolutionProvided.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Resolution: $resolutionProvided',
+                        style: TextStyle(color: Colors.white.withOpacity(0.85)),
+                      ),
+                    ],
                   ],
                 ),
               ),
-
               const SizedBox(height: 12),
 
               if (assignedResponderUid.isNotEmpty) ...[
@@ -395,7 +532,6 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                 const SizedBox(height: 12),
               ],
 
-              // Tracking map for citizen (and also responder can view)
               if (assignedResponderUid.isNotEmpty &&
                   citizenLatLng != null &&
                   !(citizenSolved || responderSolved)) ...[
@@ -403,19 +539,99 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Responder Tracking',
-                        style: TextStyle(
+                      Text(
+                        responderArrived
+                            ? 'Responder is on the Location'
+                            : 'Responder is En Route',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 10),
                       SizedBox(
-                        height: 280,
-                        child: _trackingMap(
-                          citizen: citizenLatLng,
-                          responderUid: assignedResponderUid,
+                        height: 320,
+                        child:
+                            StreamBuilder<
+                              DocumentSnapshot<Map<String, dynamic>>
+                            >(
+                              stream: FirebaseFirestore.instance
+                                  .collection('responderLocations')
+                                  .doc(assignedResponderUid)
+                                  .snapshots(),
+                              builder: (context, locSnap) {
+                                LatLng? liveResponder;
+
+                                if (locSnap.hasData && locSnap.data!.exists) {
+                                  final locData =
+                                      locSnap.data!.data() ??
+                                      <String, dynamic>{};
+                                  final rloc = locData['location'];
+
+                                  if (rloc is GeoPoint) {
+                                    liveResponder = LatLng(
+                                      rloc.latitude,
+                                      rloc.longitude,
+                                    );
+
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          _updateRoute(
+                                            responder: liveResponder!,
+                                            citizen: citizenLatLng!,
+                                          );
+                                        });
+                                  }
+                                }
+
+                                final markers = <Marker>{
+                                  Marker(
+                                    markerId: const MarkerId('citizen'),
+                                    position: citizenLatLng!,
+                                    infoWindow: const InfoWindow(
+                                      title: 'Citizen',
+                                    ),
+                                  ),
+                                  if (liveResponder != null)
+                                    Marker(
+                                      markerId: const MarkerId('responder'),
+                                      position: liveResponder,
+                                      infoWindow: const InfoWindow(
+                                        title: 'Responder',
+                                      ),
+                                    ),
+                                };
+
+                                return ClipRRect(
+                                  borderRadius: BorderRadius.circular(14),
+                                  child: GoogleMap(
+                                    initialCameraPosition: CameraPosition(
+                                      target: liveResponder ?? citizenLatLng!,
+                                      zoom: 15,
+                                    ),
+                                    markers: markers,
+                                    polylines: _routePolylines,
+                                    myLocationButtonEnabled: false,
+                                    zoomControlsEnabled: false,
+                                    mapToolbarEnabled: false,
+                                  ),
+                                );
+                              },
+                            ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        responderArrived
+                            ? 'The responder has arrived at your location.'
+                            : 'The responder is on the way to your location.',
+                        style: TextStyle(color: Colors.white.withOpacity(0.85)),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Distance: ${_distanceKm == null ? '--' : _formatDistanceKm(_distanceKm!)} • ETA: $_etaText',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.85),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -424,7 +640,6 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                 const SizedBox(height: 12),
               ],
 
-              // Buttons
               if (widget.viewerRole == 'citizen') ...[
                 SizedBox(
                   height: 52,
@@ -441,8 +656,10 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
                     ),
                     child: Text(
                       responderSolved
-                          ? 'Confirm Solved'
-                          : 'Waiting for Responder',
+                          ? 'Confirm Problem Solved'
+                          : responderArrived
+                          ? 'Responder is on Location'
+                          : 'Responder En Route',
                     ),
                   ),
                 ),
@@ -522,38 +739,6 @@ class _ReportDetailPageState extends State<ReportDetailPage> {
         border: Border.all(color: Colors.white.withOpacity(0.08)),
       ),
       child: child,
-    );
-  }
-
-  Widget _trackingMap({required LatLng citizen, required String responderUid}) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('responderLocations')
-          .doc(responderUid)
-          .snapshots(),
-      builder: (context, snap) {
-        LatLng? responder;
-        if (snap.hasData && snap.data!.exists) {
-          final d = snap.data!.data() ?? {};
-          final loc = d['location'];
-          if (loc is GeoPoint) responder = LatLng(loc.latitude, loc.longitude);
-        }
-
-        final markers = <Marker>{
-          Marker(markerId: const MarkerId('citizen'), position: citizen),
-          if (responder != null)
-            Marker(markerId: const MarkerId('responder'), position: responder),
-        };
-
-        final camera = CameraPosition(target: responder ?? citizen, zoom: 15);
-
-        return GoogleMap(
-          initialCameraPosition: camera,
-          markers: markers,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
-        );
-      },
     );
   }
 }

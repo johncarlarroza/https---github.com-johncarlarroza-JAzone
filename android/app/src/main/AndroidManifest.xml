@@ -5,6 +5,11 @@
         android:label="JAZone"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+
+        <meta-data
+    android:name="com.google.android.geo.API_KEY"
+    android:value="AIzaSyAanZdl9MYUcHvnmiN9ziczPcWmnELrKDE"/>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
